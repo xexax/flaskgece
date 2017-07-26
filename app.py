@@ -1,71 +1,64 @@
-from flask import Flask,render_template,request,redirect
-app_lulu = Flask(__name__)
+import requests
+#import quandl
+import pandas
+import simplejson as json
+from bokeh.plotting import figure, show
+from bokeh.palettes import Spectral11
+from bokeh.embed import components 
+from flask import Flask,render_template,request,redirect,session
 
-app_lulu.vars={}
+app = Flask(__name__)
 
-app_lulu.questions={}
-app_lulu.questions['How many eyes do you have?']=('1','2','3')
-app_lulu.questions['Which fruit do you like best?']=('banana','mango','pineapple')
-app_lulu.questions['Do you like cupcakes?']=('yes','no','maybe')
+app.vars={}
 
-app_lulu.nquestions=len(app_lulu.questions)
-# should be 3
 
-@app_lulu.route('/index_lulu',methods=['GET','POST'])
-def index_lulu():
-    nquestions=app_lulu.nquestions
-    if request.method == 'GET':
-        return render_template('userinfo_lulu.html',num=nquestions)
-    else:
-        # request was a POST
-        app_lulu.vars['name'] = request.form['name_lulu']
-        app_lulu.vars['age'] = request.form['age_lulu']
+@app.route('/')
+def main():
+      return redirect('/index')
 
-        f = open('%s_%s.txt'%(app_lulu.vars['name'],app_lulu.vars['age']),'w')
-        f.write('Name: %s\n'%(app_lulu.vars['name']))
-        f.write('Age: %s\n\n'%(app_lulu.vars['age']))
-        f.close()
+@app.route('/index', methods=['GET'])
+def index():
+    return render_template('index.html')
+        
+@app.route('/result_output_jm', methods=['POST'])
+def graph():
+    app.vars['ticker'] = request.form['ticker']
+    #api_url = 'https://www.quandl.com/api/v1/datasets/WIKI/'+app.vars['ticker']+'.csv?auth_token=okXqsjphs9GQY35trX2B'
+    api_url = 'https://www.quandl.com/api/v1/datasets/WIKI/%s.json?api_key=okXqsjphs9GQY35trX2B' % app.vars['ticker']
+    session = requests.Session()
+    session.mount('http://', requests.adapters.HTTPAdapter(max_retries=3))
+    raw_data = session.get(api_url)
+    #quandl.ApiConfig.api_key = 'okXqsjphs9GQY35trX2B'
+    #df = quandl.get_table('ZACKS/FC', ticker=app.vars['ticker'])
 
-        return redirect('/main_lulu')
+    a = raw_data.json()
+    df = pandas.DataFrame(a['data'], columns=a['column_names'])
+    df['Date'] = pandas.to_datetime(df['Date'])
+    #print(df['per_end_date'])
+    #df = pandas.DataFrame(a['data'], columns=a['column_names'])
 
-@app_lulu.route('/main_lulu')
-def main_lulu2():
-    if len(app_lulu.questions)==0 : return render_template('end_lulu.html')
-    return redirect('/next_lulu')
+    #print(df)
+    #df['per_end_date'] = pandas.to_datetime(df['per_end_date'])
 
-#####################################
-## IMPORTANT: I have separated /next_lulu INTO GET AND POST
-## You can also do this in one function, with If and Else
-## The attribute that contains GET and POST is: request.method
-#####################################
+    p = figure(title='Stock prices for %s' % app.vars['ticker'], x_axis_label='date',x_axis_type='datetime')
+    if request.form.get('Open'):
+        p.line(x=df['Date'], y=df['Open'],line_width=2, legend='Open')
+        #p.line(x=df['per_end_date'].values, y=df['wavg_shares_out'].values,line_width=2, legend='wavg_shares_out')
+        #show(p)
+    if request.form.get('High'):
+        p.line(x=df['Date'], y=df['High'],line_width=2, line_color="green", legend='High')
+        #p.line(x=df['per_end_date'].values, y=df['eps_basic_net'].values,line_width=2, line_color="green", legend='eps_basic_net')
+        #show(p)
+    if request.form.get('Low'):
+        p.line(x=df['Date'], y=df['Low'],line_width=2, line_color="red", legend='Low')
+        #p.line(x=df['per_end_date'].values, y=df['eps_diluted_net'].values,line_width=2, line_color="red", legend='eps_diluted_net')
+    if request.form.get('Close'):
+        p.line(x=df['Date'], y=df['Close'],line_width=2, line_color="orange", legend='Close')
+        #show(p)
+    script, div = components(p)
+    return render_template('result_output_jm.html', script=script, div=div)
 
-@app_lulu.route('/next_lulu',methods=['GET'])
-def next_lulu(): #remember the function name does not need to match the URL
-    # for clarity (temp variables)
-    n = app_lulu.nquestions - len(app_lulu.questions) + 1
-    q = list(app_lulu.questions.keys())[0] #python indexes at 0
-    a1, a2, a3 = list(app_lulu.questions.values())[0] #this will return the answers corresponding to q
-
-    # save the current question key
-    app_lulu.currentq = q
-
-    return render_template('layout_lulu.html',num=n,question=q,ans1=a1,ans2=a2,ans3=a3)
-
-@app_lulu.route('/next_lulu',methods=['POST'])
-def next_lulu2():  #can't have two functions with the same name
-    # Here, we will collect data from the user.
-    # Then, we return to the main function, so it can tell us whether to
-    # display another question page, or to show the end page.
-
-    f = open('%s_%s.txt'%(app_lulu.vars['name'],app_lulu.vars['age']),'a') #a is for append
-    f.write('%s\n'%(app_lulu.currentq))
-    f.write('%s\n\n'%(request.form['answer_from_layout_lulu'])) #this was the 'name' on layout.html!
-    f.close()
-
-    # Remove question from dictionary
-    del app_lulu.questions[app_lulu.currentq]
-
-    return redirect('/main_lulu')
-
-if __name__ == "__main__":
-    app_lulu.run(port=33507)
+if __name__ == '__main__':
+    #ps aux | grep "app.py"
+    #app.run(port=33507)
+    app.run(host='0.0.0.0')
